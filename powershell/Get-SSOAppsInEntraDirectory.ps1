@@ -5,7 +5,7 @@ $SharePointSiteUrl = ""  # e.g. https://contoso.sharepoint.com/sites/IT
 $ListName = "SSO Apps"                                                    # Name of the pre-created SharePoint list
 
 # Connect using Managed Identity (for Azure Automation Runbook)
-Connect-MgGraph -Identity
+#Connect-MgGraph -Identity
 Write-Host "Connected to Microsoft Graph via Managed Identity"
 
 # Grab all service principals with SSO configured AND assignment required
@@ -35,6 +35,18 @@ $results = foreach ($app in $ssoApps) {
     Sort-Object EndDateTime -Descending |
     Select-Object -First 1 -ExpandProperty EndDateTime
 
+    # Check if SCIM provisioning is enabled
+    $scimStatus = "Disabled"
+    try {
+        $syncJobs = Get-MgServicePrincipalSynchronizationJob -ServicePrincipalId $app.Id -ErrorAction Stop
+        if ($syncJobs | Where-Object { $_.Schedule.State -eq 'Active' }) {
+            $scimStatus = "Enabled"
+        }
+    }
+    catch {
+        # No synchronization configured for this app
+    }
+
     [PSCustomObject]@{
         AppName         = $app.DisplayName
         AppId           = $app.AppId
@@ -42,6 +54,7 @@ $results = foreach ($app in $ssoApps) {
         AssignedGroups  = ($assignments | ForEach-Object { $_.PrincipalDisplayName }) -join '; '
         CertExpiration  = if ($signingCertExpiry) { $signingCertExpiry.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ') } else { $null }
         CertNotifyEmail = ($app.NotificationEmailAddresses) -join '; '
+        SCIM            = $scimStatus
         Notes           = $app.Notes
         SPObjectId      = $app.Id
     }
@@ -91,6 +104,7 @@ foreach ($row in $sortedResults) {
         "AssignedGroups"  = $row.AssignedGroups
         "CertExpiration"  = $row.CertExpiration
         "CertNotifyEmail" = $row.CertNotifyEmail
+        "SCIM"            = $row.SCIM
         "Notes"           = $row.Notes
         "SPObjectId"      = $row.SPObjectId
     }
