@@ -24,7 +24,7 @@ $appTypeMap = @{
     "#microsoft.graph.managedAndroidStoreApp"       = "Android Store App"
     "#microsoft.graph.androidForWorkApp"            = "Android Enterprise App"
     "#microsoft.graph.microsoftStoreForBusinessApp" = "Microsoft Store App"
-    "#microsoft.graph.winGetApp"                    = "WinGet App"
+    "#microsoft.graph.winGetApp"                    = "Microsoft Store App (New)"
     "#microsoft.graph.webApp"                       = "Web Link"
     "#microsoft.graph.windowsWebApp"                = "Web Link"
     "#microsoft.graph.windowsMicrosoftEdgeApp"      = "Microsoft Edge"
@@ -47,7 +47,11 @@ $appTypeMap = @{
 # FETCH INTUNE APPS
 # ========================
 Write-Progress -Activity "Intune Apps Report" -Status "Fetching mobile apps..." -PercentComplete 0
-$intuneApps = Get-MgDeviceAppManagementMobileApp -All
+
+# Use beta endpoint to ensure all app types (including Microsoft Store New / WinGet) are returned
+$intuneApps = Invoke-MgGraphRequest -Method GET -Uri "https://graph.microsoft.com/beta/deviceAppManagement/mobileApps?`$top=999" |
+Select-Object -ExpandProperty value
+
 Write-Host "Found $($intuneApps.Count) Intune apps. Fetching assignments..."
 
 # ========================
@@ -58,25 +62,29 @@ $total = $intuneApps.Count
 $results = foreach ($app in $intuneApps) {
     $i++
     $pct = [math]::Round(($i / $total) * 100)
-    Write-Progress -Activity "Intune Apps Report" -Status "Processing $i of $total - $($app.DisplayName)" -PercentComplete $pct
+    $appName = $app.displayName
+    Write-Progress -Activity "Intune Apps Report" -Status "Processing $i of $total - $appName" -PercentComplete $pct
 
-    # Resolve friendly app type
-    $odataType = $app.AdditionalProperties.'@odata.type'
+    # Resolve friendly app type from @odata.type
+    $odataType = $app.'@odata.type'
     $appType = if ($appTypeMap.ContainsKey($odataType)) { $appTypeMap[$odataType] } else { $odataType -replace '#microsoft\.graph\.', '' }
 
-    # Fetch assignments
-    $assignments = Get-MgDeviceAppManagementMobileAppAssignment -MobileAppId $app.Id -All
+    # Fetch assignments via beta endpoint
+    $appId = $app.id
+    $assignmentResponse = Invoke-MgGraphRequest -Method GET -Uri "https://graph.microsoft.com/beta/deviceAppManagement/mobileApps/$appId/assignments"
+    $assignments = $assignmentResponse.value
 
     $requiredGroups = @()
     $availableGroups = @()
     $uninstallGroups = @()
 
     foreach ($assignment in $assignments) {
-        $intent = $assignment.Intent
-        $targetType = $assignment.Target.AdditionalProperties.'@odata.type'
+        $intent = $assignment.intent
+        $target = $assignment.target
+        $targetType = $target.'@odata.type'
 
         if ($targetType -eq '#microsoft.graph.groupAssignmentTarget' -or $targetType -eq '#microsoft.graph.exclusionGroupAssignmentTarget') {
-            $groupId = $assignment.Target.AdditionalProperties.groupId
+            $groupId = $target.groupId
             try {
                 $group = Get-MgGroup -GroupId $groupId -Property "displayName" -ErrorAction SilentlyContinue
                 $groupName = $group.DisplayName
@@ -104,11 +112,11 @@ $results = foreach ($app in $intuneApps) {
     }
 
     [PSCustomObject]@{
-        AppName     = $app.DisplayName
-        AppId       = $app.Id
+        AppName     = $appName
+        AppId       = $appId
         AppType     = $appType
-        Publisher   = $app.AdditionalProperties.publisher
-        Description = $app.AdditionalProperties.description
+        Publisher   = $app.publisher
+        Description = $app.description
         Required    = ($requiredGroups | Sort-Object -Unique) -join '; '
         Available   = ($availableGroups | Sort-Object -Unique) -join '; '
         Uninstall   = ($uninstallGroups | Sort-Object -Unique) -join '; '
