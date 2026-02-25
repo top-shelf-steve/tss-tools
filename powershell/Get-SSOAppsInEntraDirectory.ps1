@@ -38,9 +38,10 @@ $results = foreach ($app in $ssoApps) {
     # Check if SCIM provisioning is enabled
     $scimStatus = "Disabled"
     try {
-        $syncJobs = Get-MgServicePrincipalSynchronizationJob -ServicePrincipalId $app.Id -ErrorAction Stop
-        if ($syncJobs | Where-Object { $_.Schedule.State -eq 'Active' }) {
-            $scimStatus = "Enabled"
+        $syncJobs = Get-MgServicePrincipalSynchronizationJob -ServicePrincipalId $app.Id -ErrorAction SilentlyContinue
+        if ($syncJobs) {
+            $activeJob = $syncJobs | Where-Object { $_.Schedule.State -eq 'Active' -or $_.Status.Code -eq 'Active' }
+            $scimStatus = if ($activeJob) { "Enabled" } else { "Paused" }
         }
     }
     catch {
