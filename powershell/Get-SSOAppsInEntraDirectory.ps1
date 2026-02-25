@@ -4,19 +4,31 @@
 $SharePointSiteUrl = ""  # e.g. https://contoso.sharepoint.com/sites/IT
 $ListName = "SSO Apps"                                                    # Name of the pre-created SharePoint list
 
+# Additional apps to include that aren't auto-detected (e.g., OIDC/SCIM-only apps with no SSO mode set)
+$AdditionalAppIds = @(
+    # "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"  # Example App Name
+)
+
 # Connect using Managed Identity (for Azure Automation Runbook)
 #Connect-MgGraph -Identity
 Write-Host "Connected to Microsoft Graph via Managed Identity"
 
 # Grab all service principals with SSO configured AND assignment required
 Write-Progress -Activity "SSO Apps Report" -Status "Fetching service principals..." -PercentComplete 0
-$ssoApps = Get-MgServicePrincipal -All -Property "displayName,appId,preferredSingleSignOnMode,appRoleAssignmentRequired,id,keyCredentials,notes,notificationEmailAddresses,accountEnabled,loginUrl" |
-Where-Object {
+$allSPs = Get-MgServicePrincipal -All -Property "displayName,appId,preferredSingleSignOnMode,appRoleAssignmentRequired,id,keyCredentials,notes,notificationEmailAddresses,accountEnabled,loginUrl"
+$ssoApps = $allSPs | Where-Object {
     $_.AppRoleAssignmentRequired -eq $true -and
     ($_.PreferredSingleSignOnMode -in @('saml', 'oidc', 'password', 'linked') -or $_.LoginUrl)
 }
 
-Write-Host "Found $($ssoApps.Count) SSO apps with assignment required. Fetching group assignments..."
+# Merge in any additional apps by AppId
+if ($AdditionalAppIds.Count -gt 0) {
+    $existingAppIds = $ssoApps | ForEach-Object { $_.AppId }
+    $additionalApps = $allSPs | Where-Object { $_.AppId -in $AdditionalAppIds -and $_.AppId -notin $existingAppIds }
+    $ssoApps = @($ssoApps) + @($additionalApps)
+}
+
+Write-Host "Found $($ssoApps.Count) apps to process. Fetching details..."
 
 # Enrich with group assignments
 $i = 0
