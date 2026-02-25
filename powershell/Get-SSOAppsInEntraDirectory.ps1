@@ -10,7 +10,7 @@ Write-Host "Connected to Microsoft Graph via Managed Identity"
 
 # Grab all service principals with SSO configured AND assignment required
 Write-Progress -Activity "SSO Apps Report" -Status "Fetching service principals..." -PercentComplete 0
-$ssoApps = Get-MgServicePrincipal -All -Property "displayName,appId,preferredSingleSignOnMode,appRoleAssignmentRequired,id,keyCredentials,notes,notificationEmailAddresses" |
+$ssoApps = Get-MgServicePrincipal -All -Property "displayName,appId,preferredSingleSignOnMode,appRoleAssignmentRequired,id,keyCredentials,notes,notificationEmailAddresses,accountEnabled" |
 Where-Object {
     $_.PreferredSingleSignOnMode -in @('saml', 'oidc', 'password', 'linked') -and
     $_.AppRoleAssignmentRequired -eq $true
@@ -55,6 +55,7 @@ $results = foreach ($app in $ssoApps) {
         CertExpiration  = if ($signingCertExpiry) { $signingCertExpiry.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ') } else { $null }
         CertNotifyEmail = ($app.NotificationEmailAddresses) -join '; '
         SCIM            = $scimStatus
+        SignInEnabled   = if ($app.AccountEnabled) { "Yes" } else { "No" }
         Notes           = $app.Notes
         SPObjectId      = $app.Id
     }
@@ -105,6 +106,7 @@ foreach ($row in $sortedResults) {
         "CertExpiration"  = $row.CertExpiration
         "CertNotifyEmail" = $row.CertNotifyEmail
         "SCIM"            = $row.SCIM
+        "SignInEnabled"   = $row.SignInEnabled
         "Notes"           = $row.Notes
         "SPObjectId"      = $row.SPObjectId
     }
