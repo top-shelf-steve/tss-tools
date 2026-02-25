@@ -10,10 +10,10 @@ Write-Host "Connected to Microsoft Graph via Managed Identity"
 
 # Grab all service principals with SSO configured AND assignment required
 Write-Progress -Activity "SSO Apps Report" -Status "Fetching service principals..." -PercentComplete 0
-$ssoApps = Get-MgServicePrincipal -All -Property "displayName,appId,preferredSingleSignOnMode,appRoleAssignmentRequired,id,keyCredentials,notes,notificationEmailAddresses,accountEnabled" |
+$ssoApps = Get-MgServicePrincipal -All -Property "displayName,appId,preferredSingleSignOnMode,appRoleAssignmentRequired,id,keyCredentials,notes,notificationEmailAddresses,accountEnabled,loginUrl" |
 Where-Object {
-    $_.PreferredSingleSignOnMode -in @('saml', 'oidc', 'password', 'linked') -and
-    $_.AppRoleAssignmentRequired -eq $true
+    $_.AppRoleAssignmentRequired -eq $true -and
+    ($_.PreferredSingleSignOnMode -in @('saml', 'oidc', 'password', 'linked') -or $_.LoginUrl)
 }
 
 Write-Host "Found $($ssoApps.Count) SSO apps with assignment required. Fetching group assignments..."
@@ -51,7 +51,7 @@ $results = foreach ($app in $ssoApps) {
     [PSCustomObject]@{
         AppName         = $app.DisplayName
         AppId           = $app.AppId
-        SSOMode         = $app.PreferredSingleSignOnMode
+        SSOMode         = if ($app.PreferredSingleSignOnMode -in @('saml', 'oidc', 'password', 'linked')) { $app.PreferredSingleSignOnMode } elseif ($app.LoginUrl) { 'linked' } else { $app.PreferredSingleSignOnMode }
         AssignedGroups  = ($assignments | ForEach-Object { $_.PrincipalDisplayName }) -join '; '
         CertExpiration  = if ($signingCertExpiry) { $signingCertExpiry.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ') } else { $null }
         CertNotifyEmail = ($app.NotificationEmailAddresses) -join '; '
