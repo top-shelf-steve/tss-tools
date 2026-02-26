@@ -165,6 +165,122 @@ function Search-GroupByName {
     $results | Sort-Object DisplayName | Format-Table -AutoSize
 }
 
+function Get-GroupMembers {
+    Write-Host "Enter a group name or prefix to search for:" -ForegroundColor Yellow
+    $search = Read-Host "Group name"
+    if ([string]::IsNullOrWhiteSpace($search)) {
+        Write-Host "No search term provided.`n" -ForegroundColor Red
+        return
+    }
+
+    Write-Host "`nSearching for groups starting with '$search'..." -ForegroundColor Cyan
+
+    try {
+        $groups = @(Get-MgGroup -Filter "startsWith(displayName, '$search')" `
+            -Property DisplayName, Id -All -ErrorAction Stop)
+    }
+    catch {
+        Write-Host "Error searching groups: $($_.Exception.Message)`n" -ForegroundColor Red
+        return
+    }
+
+    if ($groups.Count -eq 0) {
+        Write-Host "No groups found matching '$search'.`n" -ForegroundColor Red
+        return
+    }
+
+    # If multiple groups found, let the user pick one
+    $selectedGroup = $null
+    if ($groups.Count -eq 1) {
+        $selectedGroup = $groups[0]
+        Write-Host "Found group: $($selectedGroup.DisplayName)`n" -ForegroundColor Green
+    }
+    else {
+        Write-Host "`nFound $($groups.Count) group(s):`n" -ForegroundColor Green
+        for ($i = 0; $i -lt $groups.Count; $i++) {
+            Write-Host "  $($i + 1). $($groups[$i].DisplayName)" -ForegroundColor White
+        }
+        Write-Host ""
+        $pick = Read-Host "Select a group (1-$($groups.Count))"
+        $index = 0
+        if (-not [int]::TryParse($pick, [ref]$index) -or $index -lt 1 -or $index -gt $groups.Count) {
+            Write-Host "Invalid selection.`n" -ForegroundColor Red
+            return
+        }
+        $selectedGroup = $groups[$index - 1]
+    }
+
+    Write-Host "Fetching members of '$($selectedGroup.DisplayName)'..." -ForegroundColor Cyan
+
+    try {
+        $members = @(Get-MgGroupMember -GroupId $selectedGroup.Id -All -ErrorAction Stop)
+    }
+    catch {
+        Write-Host "Error fetching members: $($_.Exception.Message)`n" -ForegroundColor Red
+        return
+    }
+
+    if ($members.Count -eq 0) {
+        Write-Host "No members found in this group.`n" -ForegroundColor Red
+        return
+    }
+
+    # Resolve full user details for each member
+    $memberResults = foreach ($member in $members) {
+        try {
+            $user = Get-MgUser -UserId $member.Id `
+                -Property DisplayName, UserPrincipalName, OfficeLocation, AccountEnabled `
+                -ErrorAction Stop
+            [PSCustomObject]@{
+                DisplayName       = if ($user.DisplayName) { $user.DisplayName } else { '-' }
+                UserPrincipalName = if ($user.UserPrincipalName) { $user.UserPrincipalName } else { '-' }
+                Location          = if ($user.OfficeLocation) { $user.OfficeLocation } else { '-' }
+                AccountEnabled    = if ($user.AccountEnabled) { "Enabled" } else { "Disabled" }
+            }
+        }
+        catch {
+            [PSCustomObject]@{
+                DisplayName       = $member.Id
+                UserPrincipalName = '-'
+                Location          = '-'
+                AccountEnabled    = '-'
+            }
+        }
+    }
+
+    $memberResults = $memberResults | Sort-Object DisplayName
+
+    Write-Host "`nFound $($memberResults.Count) member(s) in '$($selectedGroup.DisplayName)'.`n" -ForegroundColor Green
+
+    # Ask user how to output
+    Write-Host "  D. Display to terminal" -ForegroundColor White
+    Write-Host "  C. Copy UPNs to clipboard" -ForegroundColor White
+    Write-Host "  B. Both" -ForegroundColor White
+    Write-Host ""
+    $output = Read-Host "Output method (D/C/B)"
+
+    switch ($output.ToUpper()) {
+        'D' {
+            $memberResults | Format-Table -AutoSize
+        }
+        'C' {
+            $upns = ($memberResults | Where-Object { $_.UserPrincipalName -ne '-' } | ForEach-Object { $_.UserPrincipalName }) -join "`n"
+            $upns | Set-Clipboard
+            Write-Host "UPNs copied to clipboard.`n" -ForegroundColor Green
+        }
+        'B' {
+            $memberResults | Format-Table -AutoSize
+            $upns = ($memberResults | Where-Object { $_.UserPrincipalName -ne '-' } | ForEach-Object { $_.UserPrincipalName }) -join "`n"
+            $upns | Set-Clipboard
+            Write-Host "UPNs also copied to clipboard.`n" -ForegroundColor Green
+        }
+        default {
+            Write-Host "Invalid selection. Displaying to terminal by default.`n" -ForegroundColor Yellow
+            $memberResults | Format-Table -AutoSize
+        }
+    }
+}
+
 # ── Menu ──────────────────────────────────────────────────────────────
 function Show-Menu {
     Write-Host "==========================================" -ForegroundColor Cyan
@@ -173,6 +289,7 @@ function Show-Menu {
     Write-Host ""
     Write-Host "  1. Enabled Status"
     Write-Host "  2. Group Search"
+    Write-Host "  3. Group Members"
     Write-Host ""
     Write-Host "  ── Utilities ──────────────────────────" -ForegroundColor DarkGray
     Write-Host "  E. Extract Emails from Text (copy to clipboard)"
@@ -191,6 +308,7 @@ do {
     switch ($choice.ToUpper()) {
         '1' { Get-EnabledStatus }
         '2' { Search-GroupByName }
+        '3' { Get-GroupMembers }
         'E' {
             $text = Read-MultiLineInput "Paste your text below (enter a blank line when done):"
             if (-not [string]::IsNullOrWhiteSpace($text)) {
