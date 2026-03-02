@@ -19,7 +19,7 @@ else {
 
 # Fetch all guest users
 Write-Progress -Activity "Guest User Audit" -Status "Fetching guest users..." -PercentComplete 0
-$guests = Get-MgUser -Filter "userType eq 'Guest'" -All -Property "id,displayName,mail,userPrincipalName,createdDateTime,signInActivity"
+$guests = Get-MgUser -Filter "userType eq 'Guest'" -All -Property "id,displayName,mail,userPrincipalName,createdDateTime,signInActivity,accountEnabled"
 
 if ($guests.Count -eq 0) {
     Write-Host "No guest users found in the directory." -ForegroundColor Yellow
@@ -27,6 +27,26 @@ if ($guests.Count -eq 0) {
 }
 
 Write-Host "Found $($guests.Count) guest users. Processing sign-in data..."
+
+# Fetch audit logs for "Disable account" events to determine when users were disabled
+Write-Progress -Activity "Guest User Audit" -Status "Fetching disable account audit logs..." -PercentComplete 5
+$disableAuditLogs = @{}
+try {
+    $auditLogs = Get-MgAuditLogDirectoryAudit -Filter "activityDisplayName eq 'Disable account'" -All
+    foreach ($log in $auditLogs) {
+        $targetUser = $log.TargetResources | Where-Object { $_.Type -eq 'User' } | Select-Object -First 1
+        if ($targetUser) {
+            $targetId = $targetUser.Id
+            # Keep the most recent disable event per user
+            if (-not $disableAuditLogs.ContainsKey($targetId) -or $log.ActivityDateTime -gt $disableAuditLogs[$targetId]) {
+                $disableAuditLogs[$targetId] = $log.ActivityDateTime
+            }
+        }
+    }
+}
+catch {
+    Write-Host "Note: Could not retrieve disable audit logs. 'Disabled Date' column will show 'Unknown'." -ForegroundColor Yellow
+}
 
 # Process each guest user
 $cutoffDate = (Get-Date).AddDays(-30)
@@ -54,6 +74,17 @@ $results = foreach ($guest in $guests) {
         $lastSignInDisplay = "Never"
     }
 
+    $accountEnabled = $guest.AccountEnabled
+    $disabledDate = if (-not $accountEnabled -and $disableAuditLogs.ContainsKey($guest.Id)) {
+        $disableAuditLogs[$guest.Id].ToString("yyyy-MM-dd HH:mm")
+    }
+    elseif (-not $accountEnabled) {
+        "Unknown"
+    }
+    else {
+        "N/A"
+    }
+
     [PSCustomObject]@{
         DisplayName    = $guest.DisplayName
         Email          = $guest.Mail
@@ -62,6 +93,8 @@ $results = foreach ($guest in $guests) {
         LastSignIn     = $lastSignInDisplay
         DaysSinceLogin = $daysSinceSignIn
         Inactive       = $inactive
+        AccountStatus  = if ($accountEnabled) { "Enabled" } else { "Disabled" }
+        DisabledDate   = $disabledDate
     }
 }
 Write-Progress -Activity "Guest User Audit" -Completed
@@ -71,18 +104,29 @@ $results = $results | Sort-Object @{Expression = "Inactive"; Descending = $true 
 
 # Display results in console with color coding
 Write-Host ""
-Write-Host ("{0,-30} {1,-35} {2,-20} {3,-10} {4}" -f "Display Name", "Email", "Last Sign-In", "Days Ago", "Status") -ForegroundColor Cyan
-Write-Host ("-" * 110) -ForegroundColor Cyan
+Write-Host ("{0,-30} {1,-35} {2,-20} {3,-10} {4,-12} {5}" -f "Display Name", "Email", "Last Sign-In", "Days Ago", "Account", "Status") -ForegroundColor Cyan
+Write-Host ("-" * 130) -ForegroundColor Cyan
 
 foreach ($user in $results) {
     $status = if ($user.Inactive) { "INACTIVE" } else { "Active" }
-    $color = if ($user.Inactive) { "Red" } else { "Green" }
 
-    $line = "{0,-30} {1,-35} {2,-20} {3,-10} {4}" -f `
+    # Color logic: Magenta if inactive AND disabled, Red if inactive only, Green if active
+    $color = if ($user.Inactive -and $user.AccountStatus -eq "Disabled") {
+        "Magenta"
+    }
+    elseif ($user.Inactive) {
+        "Red"
+    }
+    else {
+        "Green"
+    }
+
+    $line = "{0,-30} {1,-35} {2,-20} {3,-10} {4,-12} {5}" -f `
     ($user.DisplayName.Substring(0, [math]::Min(29, $user.DisplayName.Length))),
     $(if ($user.Email) { $user.Email.Substring(0, [math]::Min(34, $user.Email.Length)) } else { "N/A" }),
     $user.LastSignIn,
     $user.DaysSinceLogin,
+    $user.AccountStatus,
     $status
 
     Write-Host $line -ForegroundColor $color
@@ -107,7 +151,7 @@ if ($inactiveUsers.Count -gt 0) {
     if ($folderDialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
         $fileName = "InactiveGuests_$(Get-Date -Format 'yyyy-MM-dd').csv"
         $filePath = Join-Path $folderDialog.SelectedPath $fileName
-        $inactiveUsers | Select-Object DisplayName, Email, UPN, CreatedDate, LastSignIn, DaysSinceLogin |
+        $inactiveUsers | Select-Object DisplayName, Email, UPN, CreatedDate, LastSignIn, DaysSinceLogin, AccountStatus, DisabledDate |
         Export-Csv -Path $filePath -NoTypeInformation
         Write-Host "Inactive guest report saved to $filePath" -ForegroundColor Green
     }
