@@ -205,7 +205,7 @@ function Get-AVDSessionHostInfo {
                         # Network interface
                         $nicId = $vm.NetworkProfile.NetworkInterfaces[0].Id
                         if ($nicId) {
-                            $nic = Get-AzNetworkInterface -ResourceId $nicId -ErrorAction SilentlyContinue
+                            $nic = Get-AzNetworkInterface -ResourceId $nicId -ErrorAction Stop
                             if ($nic) {
                                 $ipConfig = $nic.IpConfigurations[0]
                                 $privateIp = $ipConfig.PrivateIpAddress
@@ -230,11 +230,28 @@ function Get-AVDSessionHostInfo {
                                     if ($pip) { $publicIp = $pip.IpAddress }
                                 }
                             }
+                            else {
+                                Write-Host "    Warning: NIC returned null for $hostName (NIC ID: $nicId)" -ForegroundColor Yellow
+                            }
                         }
+                    }
+                    else {
+                        Write-Host "    Warning: Could not find VM '$hostName' — check Reader role on the VM resource group" -ForegroundColor Yellow
                     }
                 }
                 catch {
-                    Write-Host "    Warning: Could not get VM details for $hostName : $($_.Exception.Message)" -ForegroundColor Yellow
+                    Write-Host "    Warning: Could not get VM/NIC details for $hostName : $($_.Exception.Message)" -ForegroundColor Yellow
+                    # If NIC lookup failed but we have the VM, try to parse network info from the VM's NIC resource ID
+                    if ($vm -and $vm.NetworkProfile.NetworkInterfaces[0].Id) {
+                        Write-Host "    Info: NIC read failed (likely missing Network Reader role). Falling back to resource ID parsing." -ForegroundColor DarkYellow
+                        try {
+                            $nicParts = $vm.NetworkProfile.NetworkInterfaces[0].Id -split '/'
+                            # NIC resource ID doesn't contain subnet info, but we can still try Get-AzVM with -Status
+                            # to at least get the NIC RG for the warning message
+                            Write-Host "    Info: Ensure Reader role on the NIC resource group: $($nicParts[4])" -ForegroundColor DarkYellow
+                        }
+                        catch {}
+                    }
                 }
 
                 $sessionHosts += [PSCustomObject]@{
@@ -265,36 +282,60 @@ function Get-AVDNetworkInfo {
     param ([PSCustomObject[]]$NetworkData)
 
     $vnets = @()
+
+    if (-not $NetworkData -or $NetworkData.Count -eq 0) {
+        Write-Host "    No network data collected from session hosts — NIC lookups may have failed" -ForegroundColor Yellow
+        return $vnets
+    }
+
     $uniqueVNets = $NetworkData | Select-Object VNetName, VNetRg -Unique
 
     foreach ($entry in $uniqueVNets) {
+        Write-Host "    Querying VNet: $($entry.VNetName) in RG: $($entry.VNetRg)" -ForegroundColor Gray
         try {
-            $vnet = Get-AzVirtualNetwork -ResourceGroupName $entry.VNetRg -Name $entry.VNetName -ErrorAction SilentlyContinue
-            if ($vnet) {
-                $subnets = @()
-                foreach ($subnet in $vnet.Subnets) {
-                    $nsgName = "None"
-                    if ($subnet.NetworkSecurityGroup) {
-                        $nsgName = ($subnet.NetworkSecurityGroup.Id -split '/')[-1]
-                    }
-                    $subnets += [PSCustomObject]@{
-                        Name          = $subnet.Name
-                        AddressPrefix = $subnet.AddressPrefix -join ", "
-                        NSG           = $nsgName
-                    }
+            $vnet = Get-AzVirtualNetwork -ResourceGroupName $entry.VNetRg -Name $entry.VNetName -ErrorAction Stop
+            $subnets = @()
+            foreach ($subnet in $vnet.Subnets) {
+                $nsgName = "None"
+                if ($subnet.NetworkSecurityGroup) {
+                    $nsgName = ($subnet.NetworkSecurityGroup.Id -split '/')[-1]
                 }
+                $subnets += [PSCustomObject]@{
+                    Name          = $subnet.Name
+                    AddressPrefix = $subnet.AddressPrefix -join ", "
+                    NSG           = $nsgName
+                }
+            }
 
-                $vnets += [PSCustomObject]@{
-                    Name          = $vnet.Name
-                    ResourceGroup = $entry.VNetRg
-                    Location      = $vnet.Location
-                    AddressSpace  = $vnet.AddressSpace.AddressPrefixes -join ", "
-                    Subnets       = $subnets
-                }
+            $vnets += [PSCustomObject]@{
+                Name          = $vnet.Name
+                ResourceGroup = $entry.VNetRg
+                Location      = $vnet.Location
+                AddressSpace  = $vnet.AddressSpace.AddressPrefixes -join ", "
+                Subnets       = $subnets
             }
         }
         catch {
-            Write-Host "  Warning: Could not get VNet details for $($entry.VNetName): $($_.Exception.Message)" -ForegroundColor Yellow
+            Write-Host "    Warning: Could not read VNet '$($entry.VNetName)' in RG '$($entry.VNetRg)': $($_.Exception.Message)" -ForegroundColor Yellow
+            Write-Host "    Info: Ensure Reader role on the VNet resource group '$($entry.VNetRg)' — VNets are often in a separate networking RG" -ForegroundColor DarkYellow
+
+            # Fall back to the subnet names we already parsed from NIC data
+            $knownSubnets = $NetworkData | Where-Object { $_.VNetName -eq $entry.VNetName } | Select-Object SubnetName -Unique
+            $fallbackSubnets = $knownSubnets | ForEach-Object {
+                [PSCustomObject]@{
+                    Name          = $_.SubnetName
+                    AddressPrefix = "(unavailable — no read access)"
+                    NSG           = "(unavailable)"
+                }
+            }
+
+            $vnets += [PSCustomObject]@{
+                Name          = $entry.VNetName
+                ResourceGroup = $entry.VNetRg
+                Location      = "(unavailable)"
+                AddressSpace  = "(unavailable — no read access to VNet)"
+                Subnets       = $fallbackSubnets
+            }
         }
     }
     return $vnets
