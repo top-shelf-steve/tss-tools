@@ -254,10 +254,15 @@ function Get-AVDSessionHostInfo {
                     }
                 }
 
+                # Assigned user (populated for Personal host pools)
+                $assignedUser = if ($sh.AssignedUser) { $sh.AssignedUser } else { "" }
+
                 $sessionHosts += [PSCustomObject]@{
                     HostPool      = $hp.Name
+                    HostPoolType  = $hp.HostPoolType
                     HostName      = $hostName
                     Status        = $sh.Status
+                    AssignedUser  = $assignedUser
                     Sessions      = $sh.Session
                     LastHeartBeat = $sh.LastHeartBeat
                     VMSize        = $vmSize
@@ -468,13 +473,25 @@ function Build-AVDDocumentation {
 
             # Session hosts for this host pool
             $hpSessionHosts = $SessionHosts | Where-Object { $_.HostPool -eq $hp.Name }
+            $isPersonal = $hp.HostPoolType -eq "Personal"
             if ($hpSessionHosts.Count -gt 0) {
                 [void]$md.AppendLine("#### Session Hosts ($($hpSessionHosts.Count))")
                 [void]$md.AppendLine("")
-                [void]$md.AppendLine("| Hostname | Status | VM Size | OS | Disk | Private IP | Subnet | VNet |")
-                [void]$md.AppendLine("|----------|--------|---------|----|------|------------|--------|------|")
+                if ($isPersonal) {
+                    [void]$md.AppendLine("| Hostname | Status | Assigned User | VM Size | OS | Disk | Private IP | Subnet | VNet |")
+                    [void]$md.AppendLine("|----------|--------|---------------|---------|----|----- |------------|--------|------|")
+                }
+                else {
+                    [void]$md.AppendLine("| Hostname | Status | VM Size | OS | Disk | Private IP | Subnet | VNet |")
+                    [void]$md.AppendLine("|----------|--------|---------|----|------|------------|--------|------|")
+                }
                 foreach ($sh in $hpSessionHosts) {
-                    [void]$md.AppendLine("| $($sh.HostName) | $($sh.Status) | $($sh.VMSize) | $($sh.OSType) | $($sh.OSDiskSize) | $($sh.PrivateIP) | $($sh.Subnet) | $($sh.VNet) |")
+                    if ($isPersonal) {
+                        [void]$md.AppendLine("| $($sh.HostName) | $($sh.Status) | $($sh.AssignedUser) | $($sh.VMSize) | $($sh.OSType) | $($sh.OSDiskSize) | $($sh.PrivateIP) | $($sh.Subnet) | $($sh.VNet) |")
+                    }
+                    else {
+                        [void]$md.AppendLine("| $($sh.HostName) | $($sh.Status) | $($sh.VMSize) | $($sh.OSType) | $($sh.OSDiskSize) | $($sh.PrivateIP) | $($sh.Subnet) | $($sh.VNet) |")
+                    }
                 }
                 [void]$md.AppendLine("")
             }
