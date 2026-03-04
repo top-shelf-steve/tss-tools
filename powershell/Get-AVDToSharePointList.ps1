@@ -41,6 +41,7 @@ foreach ($rg in $ResourceGroupNames) {
     foreach ($hp in $hps) {
         $hostPools += [PSCustomObject]@{
             Name              = $hp.Name
+            Description       = $hp.Description
             ResourceGroup     = $rg
             HostPoolType      = $hp.HostPoolType
             LoadBalancerType  = $hp.LoadBalancerType
@@ -176,6 +177,7 @@ foreach ($hp in $hostPools) {
         $results += [PSCustomObject]@{
             HostName         = $hostName
             HostPool         = $hp.Name
+            HostPoolDesc     = $hp.Description
             HostPoolType     = $hp.HostPoolType
             LoadBalancerType = $hp.LoadBalancerType
             MaxSessionLimit  = $hp.MaxSessionLimit
@@ -240,6 +242,7 @@ foreach ($row in $sortedResults) {
     $fields = @{
         "HostName"         = $row.HostName
         "HostPool"         = $row.HostPool
+        "HostPoolDesc"     = $row.HostPoolDesc
         "HostPoolType"     = $row.HostPoolType
         "LoadBalancerType" = $row.LoadBalancerType
         "MaxSessionLimit"  = $row.MaxSessionLimit
