@@ -67,14 +67,27 @@ foreach ($rg in $ResourceGroupNames) {
         # Track app group names and friendly names per host pool
         if (-not $appGroupsByHostPool.ContainsKey($hpName)) { $appGroupsByHostPool[$hpName] = @() }
         $appGroupsByHostPool[$hpName] += $ag.Name
-        # Get published application display names from this app group
+        # Get display names from this app group (desktops + RemoteApps)
         if (-not $appNamesByHostPool.ContainsKey($hpName)) { $appNamesByHostPool[$hpName] = @() }
         try {
-            $apps = Get-AzWvdApplication -ResourceGroupName $rg -GroupName $ag.Name -ErrorAction SilentlyContinue
-            foreach ($app in $apps) {
-                $displayName = if ($app.FriendlyName) { $app.FriendlyName } else { $app.Name.Split('/')[-1] }
-                if ($displayName -and $displayName -notin $appNamesByHostPool[$hpName]) {
-                    $appNamesByHostPool[$hpName] += $displayName
+            if ($ag.ApplicationGroupType -eq 'Desktop') {
+                # Desktop app groups use Get-AzWvdDesktop for the display name
+                $desktops = Get-AzWvdDesktop -ResourceGroupName $rg -ApplicationGroupName $ag.Name -ErrorAction SilentlyContinue
+                foreach ($d in $desktops) {
+                    $displayName = if ($d.FriendlyName) { $d.FriendlyName } else { $d.Name.Split('/')[-1] }
+                    if ($displayName -and $displayName -notin $appNamesByHostPool[$hpName]) {
+                        $appNamesByHostPool[$hpName] += $displayName
+                    }
+                }
+            }
+            else {
+                # RemoteApp app groups use Get-AzWvdApplication
+                $apps = Get-AzWvdApplication -ResourceGroupName $rg -GroupName $ag.Name -ErrorAction SilentlyContinue
+                foreach ($app in $apps) {
+                    $displayName = if ($app.DisplayName) { $app.DisplayName } elseif ($app.FriendlyName) { $app.FriendlyName } else { $app.Name.Split('/')[-1] }
+                    if ($displayName -and $displayName -notin $appNamesByHostPool[$hpName]) {
+                        $appNamesByHostPool[$hpName] += $displayName
+                    }
                 }
             }
         }
