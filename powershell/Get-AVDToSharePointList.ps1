@@ -56,6 +56,7 @@ Write-Host "  Found $($hostPools.Count) host pool(s)"
 # --- Application Groups & Access Groups ---
 Write-Progress -Activity "AVD Export" -Status "Fetching application groups..." -PercentComplete 15
 $appGroupsByHostPool = @{}  # HostPoolName -> list of app group names
+$appGroupFriendlyByHostPool = @{}  # HostPoolName -> list of app group friendly names
 $accessGroupsByHostPool = @{}  # HostPoolName -> list of Entra group names
 
 foreach ($rg in $ResourceGroupNames) {
@@ -63,9 +64,11 @@ foreach ($rg in $ResourceGroupNames) {
     foreach ($ag in $ags) {
         $hpName = ($ag.HostPoolArmPath -split '/')[-1]
 
-        # Track app group names per host pool
+        # Track app group names and friendly names per host pool
         if (-not $appGroupsByHostPool.ContainsKey($hpName)) { $appGroupsByHostPool[$hpName] = @() }
         $appGroupsByHostPool[$hpName] += $ag.Name
+        if (-not $appGroupFriendlyByHostPool.ContainsKey($hpName)) { $appGroupFriendlyByHostPool[$hpName] = @() }
+        if ($ag.FriendlyName) { $appGroupFriendlyByHostPool[$hpName] += $ag.FriendlyName }
 
         # Get Desktop Virtualization User role assignments
         if (-not $accessGroupsByHostPool.ContainsKey($hpName)) { $accessGroupsByHostPool[$hpName] = @() }
@@ -172,7 +175,6 @@ foreach ($hp in $hostPools) {
         }
 
         $assignedUser = if ($sh.AssignedUser) { $sh.AssignedUser } else { "" }
-        $lastHeartBeat = if ($sh.LastHeartBeat) { $sh.LastHeartBeat.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ') } else { "" }
 
         $results += [PSCustomObject]@{
             HostName         = $hostName
@@ -184,8 +186,7 @@ foreach ($hp in $hostPools) {
             StartVMOnConnect = if ($hp.StartVMOnConnect) { "Yes" } else { "No" }
             Status           = $sh.Status
             AssignedUser     = $assignedUser
-            Sessions         = $sh.Session
-            LastHeartBeat    = $lastHeartBeat
+            OSVersion        = $sh.OSVersion
             VMSize           = $vmSize
             OSDiskSizeGB     = $osDiskSize
             OSType           = $osType
@@ -195,6 +196,7 @@ foreach ($hp in $hostPools) {
             ResourceGroup    = $hp.ResourceGroup
             Workspace        = if ($workspaceByHostPool.ContainsKey($hp.Name)) { $workspaceByHostPool[$hp.Name] } else { "" }
             AppGroups        = if ($appGroupsByHostPool.ContainsKey($hp.Name)) { $appGroupsByHostPool[$hp.Name] -join '; ' } else { "" }
+            FriendlyName = if ($appGroupFriendlyByHostPool.ContainsKey($hp.Name)) { $appGroupFriendlyByHostPool[$hp.Name] -join '; ' } else { "" }
             AccessGroups     = if ($accessGroupsByHostPool.ContainsKey($hp.Name)) { $accessGroupsByHostPool[$hp.Name] -join '; ' } else { "" }
         }
     }
@@ -249,8 +251,7 @@ foreach ($row in $sortedResults) {
         "StartVMOnConnect" = $row.StartVMOnConnect
         "Status"           = $row.Status
         "AssignedUser"     = $row.AssignedUser
-        "Sessions"         = $row.Sessions
-        "LastHeartBeat"    = $row.LastHeartBeat
+        "OSVersion"        = $row.OSVersion
         "VMSize"           = $row.VMSize
         "OSDiskSizeGB"     = $row.OSDiskSizeGB
         "OSType"           = $row.OSType
@@ -260,6 +261,7 @@ foreach ($row in $sortedResults) {
         "ResourceGroup"    = $row.ResourceGroup
         "Workspace"        = $row.Workspace
         "AppGroups"        = $row.AppGroups
+        "FriendlyName" = $row.FriendlyName
         "AccessGroups"     = $row.AccessGroups
     }
 
