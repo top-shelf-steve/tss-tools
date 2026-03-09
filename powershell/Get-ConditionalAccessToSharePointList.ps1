@@ -13,7 +13,7 @@ if ($UseManagedIdentity) {
     Write-Host "Connected via Managed Identity"
 }
 else {
-    Connect-MgGraph -Scopes "Policy.Read.All", "Group.Read.All", "Application.Read.All", "Sites.ReadWrite.All" | Out-Null
+    Connect-MgGraph -Scopes "Policy.Read.All", "User.Read.All", "Group.Read.All", "Application.Read.All", "Sites.ReadWrite.All" | Out-Null
     Write-Host "Connected interactively"
 }
 
@@ -30,22 +30,32 @@ Write-Host "Found $($policies.Count) Conditional Access policies"
 Write-Host "Building display name lookups..."
 
 $groupIds = @()
+$userIds = @()
 $spIds = @()
 
 foreach ($policy in $policies) {
     $groupIds += $policy.Conditions.Users.IncludeGroups
     $groupIds += $policy.Conditions.Users.ExcludeGroups
+    $userIds += $policy.Conditions.Users.IncludeUsers | Where-Object { $_ -notin @("All", "None", "GuestsOrExternalUsers") }
+    $userIds += $policy.Conditions.Users.ExcludeUsers | Where-Object { $_ -notin @("All", "None", "GuestsOrExternalUsers") }
     $spIds += $policy.Conditions.Applications.IncludeApplications | Where-Object { $_ -notin @("All", "None", "Office365") }
     $spIds += $policy.Conditions.Applications.ExcludeApplications | Where-Object { $_ -notin @("All", "None", "Office365") }
 }
 
 $groupIds = @($groupIds | Where-Object { $_ } | Select-Object -Unique)
+$userIds = @($userIds | Where-Object { $_ } | Select-Object -Unique)
 $spIds = @($spIds | Where-Object { $_ } | Select-Object -Unique)
 
 $groupLookup = @{}
 foreach ($id in $groupIds) {
     $group = Get-MgGroup -GroupId $id -Property "DisplayName" -ErrorAction SilentlyContinue
     if ($group) { $groupLookup[$id] = $group.DisplayName }
+}
+
+$userLookup = @{}
+foreach ($id in $userIds) {
+    $user = Get-MgUser -UserId $id -Property "DisplayName" -ErrorAction SilentlyContinue
+    if ($user) { $userLookup[$id] = $user.DisplayName }
 }
 
 $appLookup = @{
@@ -112,7 +122,9 @@ foreach ($policy in $policies) {
     elseif ($policy.Conditions.Users.IncludeUsers -contains "None") { $includeParts += "None" }
     else {
         foreach ($u in $policy.Conditions.Users.IncludeUsers) {
-            if ($u -and $u -notin @("All", "None", "GuestsOrExternalUsers")) { $includeParts += $u }
+            if ($u -and $u -notin @("All", "None", "GuestsOrExternalUsers")) {
+                $includeParts += if ($userLookup[$u]) { $userLookup[$u] } else { $u }
+            }
         }
     }
     foreach ($gid in $policy.Conditions.Users.IncludeGroups) {
@@ -124,8 +136,10 @@ foreach ($policy in $policies) {
     # --- Excluded users/groups ---
     $excludeParts = @()
     foreach ($u in $policy.Conditions.Users.ExcludeUsers) {
-        if ($u -and $u -notin @("GuestsOrExternalUsers")) { $excludeParts += $u }
-        elseif ($u -eq "GuestsOrExternalUsers") { $excludeParts += "Guests/external users" }
+        if ($u -eq "GuestsOrExternalUsers") { $excludeParts += "Guests/external users" }
+        elseif ($u) {
+            $excludeParts += if ($userLookup[$u]) { $userLookup[$u] } else { $u }
+        }
     }
     foreach ($gid in $policy.Conditions.Users.ExcludeGroups) {
         $excludeParts += if ($groupLookup[$gid]) { $groupLookup[$gid] } else { $gid }
