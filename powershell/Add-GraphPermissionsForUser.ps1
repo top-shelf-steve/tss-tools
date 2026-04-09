@@ -31,7 +31,7 @@ if (-not $user) {
 Write-Host "Found user: $($user.DisplayName) ($($user.Id))" -ForegroundColor Cyan
 
 # Graph Command Line Tools service principal
-$servicePrincipalId = "b9384443-0c1a-4a9b-a5e5-a9662106ff7b"
+$servicePrincipalId = ""
 $appServicePrincipal = Get-MgServicePrincipal -ServicePrincipalId $servicePrincipalId -ErrorAction Stop
 
 if (-not $appServicePrincipal) {
