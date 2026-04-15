@@ -70,13 +70,23 @@ $allScopes = $allGrants | ForEach-Object { $_.Scope -split "\s+" | Where-Object 
 Write-Host "`n=== All Delegated Permissions (Combined) ===" -ForegroundColor Green
 $allScopes | ForEach-Object { Write-Host "  - $_" }
 
-$scopesFormatted = ($allScopes | ForEach-Object { "$_," }) -join "`n"
-Set-Clipboard -Value $scopesFormatted
-Write-Host "`nCopied to clipboard:" -ForegroundColor Cyan
-Write-Host $scopesFormatted
+# --- Permissions needing promotion (user-consented but not admin-consented) ---
+$adminScopes = $adminGrants | ForEach-Object { $_.Scope -split "\s+" | Where-Object { $_ } } | Select-Object -Unique
+$userOnlyScopes = $allScopes | Where-Object { $_ -notin $adminScopes } | Sort-Object
+
+Write-Host "`n=== Not Yet Admin-Consented (copied to clipboard) ===" -ForegroundColor Yellow
+if ($userOnlyScopes) {
+    $userOnlyScopes | ForEach-Object { Write-Host "  - $_" }
+    $scopesFormatted = ($userOnlyScopes | ForEach-Object { "$_," }) -join "`n"
+    Set-Clipboard -Value $scopesFormatted
+    Write-Host "`nCopied to clipboard:" -ForegroundColor Cyan
+    Write-Host $scopesFormatted
+} else {
+    Write-Host "  All user-consented permissions are already admin-consented." -ForegroundColor Green
+}
 
 # --- Summary ---
 Write-Host "`n=== Summary ===" -ForegroundColor Green
-Write-Host "  Admin-consented unique scopes : $(($adminGrants | ForEach-Object { $_.Scope -split "\s+" | Where-Object { $_ } } | Select-Object -Unique).Count)"
+Write-Host "  Admin-consented unique scopes : $($adminScopes.Count)"
 Write-Host "  Per-user grants               : $(($userGrants | Measure-Object).Count)"
-Write-Host "  Total unique scopes           : $($allScopes.Count)"
+Write-Host "  Needing promotion             : $($userOnlyScopes.Count)"
