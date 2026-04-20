@@ -85,18 +85,21 @@ do {
         Write-Warning "App Registration created, but failed to create Enterprise Application: $_"
     }
 
-    # Add owner
+    # Add owner(s)
     if ($ownerUPN) {
-        try {
-            $owner = Get-MgUser -UserId $ownerUPN -ErrorAction Stop
-            $ownerRef = @{
-                "@odata.id" = "https://graph.microsoft.com/v1.0/directoryObjects/$($owner.Id)"
+        $owners = $ownerUPN -split "," | ForEach-Object { $_.Trim() } | Where-Object { $_ }
+        foreach ($upn in $owners) {
+            try {
+                $owner = Get-MgUser -UserId $upn -ErrorAction Stop
+                $ownerRef = @{
+                    "@odata.id" = "https://graph.microsoft.com/v1.0/directoryObjects/$($owner.Id)"
+                }
+                New-MgApplicationOwnerByRef -ApplicationId $newApp.Id -BodyParameter $ownerRef -ErrorAction Stop
+                Write-Host "Owner added: $($owner.DisplayName) ($($owner.UserPrincipalName))" -ForegroundColor Green
             }
-            New-MgApplicationOwnerByRef -ApplicationId $newApp.Id -BodyParameter $ownerRef -ErrorAction Stop
-            Write-Host "Owner added: $($owner.DisplayName) ($($owner.UserPrincipalName))" -ForegroundColor Green
-        }
-        catch {
-            Write-Warning "Failed to add owner '$ownerUPN': $_"
+            catch {
+                Write-Warning "Failed to add owner '$upn': $_"
+            }
         }
     }
 

@@ -57,7 +57,7 @@ param (
     [string]$PlatformType = "Web",
 
     [Parameter(Mandatory = $false)]
-    [string]$OwnerUPN
+    [string[]]$OwnerUPN
 )
 
 #region Prerequisites
@@ -141,21 +141,23 @@ catch {
 }
 #endregion
 
-#region Add Owner
+#region Add Owner(s)
 if ($OwnerUPN) {
-    try {
-        Write-Host "`nLooking up user '$OwnerUPN'..." -ForegroundColor Cyan
-        $owner = Get-MgUser -UserId $OwnerUPN -ErrorAction Stop
+    foreach ($upn in $OwnerUPN) {
+        try {
+            Write-Host "`nLooking up user '$upn'..." -ForegroundColor Cyan
+            $owner = Get-MgUser -UserId $upn -ErrorAction Stop
 
-        $ownerRef = @{
-            "@odata.id" = "https://graph.microsoft.com/v1.0/directoryObjects/$($owner.Id)"
+            $ownerRef = @{
+                "@odata.id" = "https://graph.microsoft.com/v1.0/directoryObjects/$($owner.Id)"
+            }
+
+            New-MgApplicationOwnerByRef -ApplicationId $newApp.Id -BodyParameter $ownerRef -ErrorAction Stop
+            Write-Host "Owner added: $($owner.DisplayName) ($($owner.UserPrincipalName))" -ForegroundColor Green
         }
-
-        New-MgApplicationOwnerByRef -ApplicationId $newApp.Id -BodyParameter $ownerRef -ErrorAction Stop
-        Write-Host "Owner added: $($owner.DisplayName) ($($owner.UserPrincipalName))" -ForegroundColor Green
-    }
-    catch {
-        Write-Warning "App was created, but failed to add owner '$OwnerUPN': $_"
+        catch {
+            Write-Warning "App was created, but failed to add owner '$upn': $_"
+        }
     }
 }
 #endregion
