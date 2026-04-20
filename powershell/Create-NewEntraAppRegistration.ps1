@@ -152,4 +152,9 @@ if ($OwnerUPN) {
 }
 #endregion
 
+$clipboardText = "$($newApp.DisplayName) — $($newApp.AppId)"
+Set-Clipboard -Value $clipboardText
+Write-Host "`nCopied to clipboard:" -ForegroundColor Cyan
+Write-Host $clipboardText
+
 Write-Host "`nDone." -ForegroundColor Green
