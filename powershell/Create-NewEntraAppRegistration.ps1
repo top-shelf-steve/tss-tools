@@ -81,6 +81,14 @@ catch {
 }
 #endregion
 
+#region Check for existing app with same name
+$existingApp = Get-MgApplication -Filter "displayName eq '$DisplayName'" -Top 1
+if ($existingApp) {
+    Write-Host "An App Registration named '$DisplayName' already exists. Exiting." -ForegroundColor Yellow
+    exit 0
+}
+#endregion
+
 #region Build App Registration Body
 $appBody = @{
     DisplayName    = $DisplayName

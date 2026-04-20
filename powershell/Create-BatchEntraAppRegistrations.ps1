@@ -41,6 +41,13 @@ do {
         if ($platformInput -in "SPA", "PublicClient") { $platformType = $platformInput }
     }
 
+    # Check for existing app with same name
+    $existingApp = Get-MgApplication -Filter "displayName eq '$displayName'" -Top 1
+    if ($existingApp) {
+        Write-Host "An App Registration named '$displayName' already exists. Skipping." -ForegroundColor Yellow
+        continue
+    }
+
     # Build app body
     $appBody = @{
         DisplayName    = $displayName
