@@ -32,10 +32,14 @@
 
 .NOTES
     Required Graph permissions on the managed identity (application):
-      * PrivilegedAccess.Read.AzureADGroup
-      * RoleManagement.Read.Directory
-      * User.Read.All
-      * Sites.Selected            (granted on the target site only)
+      * PrivilegedAssignmentSchedule.Read.AzureADGroup   - PIM-for-Group reads
+      * RoleManagement.Read.Directory                    - PIM-for-Role reads
+        (Docs technically list RoleAssignmentSchedule.ReadWrite.Directory as
+        "least privileged" for this LIST call, but it's a write scope. The
+        broader read-only RoleManagement.Read.Directory works in practice and
+        keeps the MI write-free.)
+      * User.Read.All                                    - resolve UPN/display name
+      * Sites.Selected                                   - granted on the target site only
 
     Schedule: every 30 days via the Automation Account schedule.
     Automation Account: <PLACEHOLDER-AutomationAccountName>
@@ -67,7 +71,7 @@ $UseManagedIdentity = $false
 
 # ======================== AUTHENTICATION ========================
 $requiredScopes = @(
-    "PrivilegedAccess.Read.AzureADGroup",
+    "PrivilegedAssignmentSchedule.Read.AzureADGroup",
     "RoleManagement.Read.Directory",
     "User.Read.All",
     "Sites.ReadWrite.All"
